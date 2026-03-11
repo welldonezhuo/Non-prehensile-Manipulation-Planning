@@ -42,6 +42,30 @@ class JacSolver(object):
         ########## TODO ##########
         J = np.zeros(shape=(6, 7))
 
-        
+        dq = 1e-3
+
+        pos0, quat0 = self.forward_kinematics(joint_values)
+        R0 = np.array(self.bullet_client.getMatrixFromQuaternion(
+            quat0)).reshape(3, 3)
+
+        for i in range(7):
+            joint_values_perturbed = copy.deepcopy(joint_values)
+            joint_values_perturbed[i] += dq
+
+            pos1, quat1 = self.forward_kinematics(joint_values_perturbed)
+            R1 = np.array(self.bullet_client.getMatrixFromQuaternion(
+                quat1)).reshape(3, 3)
+
+            # linear part
+            J[0:3, i] = (pos1 - pos0) / dq
+
+            # angular part
+            R_rel = R1 @ R0.T
+            w_hat = (R_rel - R_rel.T) / (2.0 * dq)
+            J[3:6, i] = np.array([
+                w_hat[2, 1],
+                w_hat[0, 2],
+                w_hat[1, 0]
+            ])
         ##########################
         return J
