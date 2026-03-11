@@ -6,7 +6,7 @@ class Bounds(object):
     """
     Bounds of the state space for a motion planning problem.
     """
-    
+
     def __init__(self, dim):
         """
         args: dim: The dimensionality of the state space.
@@ -54,10 +54,11 @@ class ProblemDefinition(object):
         self.panda_sim.set_pdef(self)
         self.start_state = self.panda_sim.save_state()
         self.goal = None
-        self.dim_state = sim.pandaNumDofs + 3 * self.panda_sim.num_objects # dimensionality of the state space
-        self.dim_ctrl = 4 # dimensionality of the control space
-        self.bounds_state = Bounds(self.dim_state) # bounds of the state space
-        self.bounds_ctrl = Bounds(self.dim_ctrl) # bounds of the control space
+        self.dim_state = sim.pandaNumDofs + 3 * \
+            self.panda_sim.num_objects  # dimensionality of the state space
+        self.dim_ctrl = 4  # dimensionality of the control space
+        self.bounds_state = Bounds(self.dim_state)  # bounds of the state space
+        self.bounds_ctrl = Bounds(self.dim_ctrl)  # bounds of the control space
 
     def get_state_dimension(self):
         return self.dim_state
@@ -70,7 +71,8 @@ class ProblemDefinition(object):
         Calculate the Euclidean distance of two state vector(s).
         """
         dim = stateVec1.shape[-1]
-        dists = np.linalg.norm(stateVec1.reshape(-1, dim) - stateVec2.reshape(-1, dim), axis=1)
+        dists = np.linalg.norm(
+            stateVec1.reshape(-1, dim) - stateVec2.reshape(-1, dim), axis=1)
         return dists
 
     def get_goal(self):
@@ -81,7 +83,7 @@ class ProblemDefinition(object):
 
     def get_start_state(self):
         return self.start_state
-    
+
     def set_start_state(self, state_st):
         self.start_state = state_st
 
@@ -100,11 +102,31 @@ class ProblemDefinition(object):
         returns: Ture or False.
         """
         ########## TODO ##########
+
+        # (a) state bounds
+        if not self.bounds_state.is_satisfied(state):
+            return False
+
+        # (b) no collision between robot and the ground
+        if self.panda_sim.is_collision(state):
+            return False
+
+        # (c) end-effector inside workspace
+        joint_values = state["stateVec"][0:7]
+        pos, _ = self.panda_sim.jac_solver.forward_kinematics(joint_values)
+
+        # FK pose is with respect to robot base at [-0.4, -0.2, 0]
+        x_ee = pos[0] - 0.4
+        y_ee = pos[1] - 0.2
+
+        if x_ee < -0.35 or x_ee > 0.35:
+            return False
+        if y_ee < -0.35 or y_ee > 0.35:
+            return False
+
         return True
-
-
         ##########################
-    
+
     def is_state_high_quality(self, J):
         """
         Check if a state is high-quality enough or not for the task.
@@ -113,9 +135,13 @@ class ProblemDefinition(object):
         returns: Ture or False
         """
         ########## TODO ##########
-        return True
-    
 
+        JJt = J @ J.T
+        det_val = np.linalg.det(JJt)
+        det_val = max(det_val, 0.0)
+        manipulability = np.sqrt(det_val)
+
+        return manipulability > 0.01
         ##########################
 
     def propagate(self, nstate, control):
