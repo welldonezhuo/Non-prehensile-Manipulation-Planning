@@ -97,6 +97,9 @@ class KinodynamicRRT(object):
         """
         ########## TODO ##########
 
+        solved = False
+        plan = None
+
         # Reinitialize the tree and insert the start state as the root
         self.tree = Tree(self.pdef)
 
@@ -165,9 +168,6 @@ class KinodynamicRRT(object):
 
                 # Reverse the path so it starts from the root
                 return True, path_nodes[::-1]
-
-        # Return failure if no solution is found within the time limit
-        return False, None
 
         ##########################
 
