@@ -97,121 +97,78 @@ class KinodynamicRRT(object):
         """
         ########## TODO ##########
 
-        solved = False
-        plan = None
+        # Reinitialize the tree and insert the start state as the root
+        self.tree = Tree(self.pdef)
 
-        start_time = time.time()
+        start = Node(self.pdef.start_state)
+        start.set_parent(None)
+        start.set_control(None)
+        self.tree.add(start)
 
-        # Initialize the RRT tree with the start state
-        start_state = self.pdef.get_start_state()
-        start_node = Node(start_state)
-        self.tree.add(start_node)
+        # Start the timer for the planning loop
+        start_clock = time.time()
+        num_trials = 1
+        iteration_count = 0
 
-        # Main RRT planning loop
-        while time.time() - start_time < time_budget:
+        # Run RRT expansion until the time budget is exhausted
+        while time.time() - start_clock < time_budget:
+            iteration_count += 1
 
-            # --------------------------------------------------
-            # Goal-biased sampling:
-            # With a small probability, sample a state near the goal
-            # to encourage the planner to push the target object
-            # toward the goal region.
-            # --------------------------------------------------
-            if np.random.rand() < 0.2:
-                rstateVec = np.array(start_state["stateVec"], copy=True)
-                goal = self.pdef.goal
-                rstateVec[7] = goal.x_g + \
-                    np.random.uniform(-goal.r_g, goal.r_g)
-                rstateVec[8] = goal.y_g + \
-                    np.random.uniform(-goal.r_g, goal.r_g)
+            # With some probability, sample around an existing node (local exploration)
+            if self.tree.size() > 1 and np.random.rand() < 0.25:
+                base_node = self.tree.nodes[np.random.randint(
+                    self.tree.size())]
+                x_samp_vec = np.array(base_node.state["stateVec"], copy=True)
 
-                # Randomize target object orientation if present
-                if len(rstateVec) > 9:
-                    rstateVec[9] = np.random.uniform(-np.pi, np.pi)
-
-            # Otherwise sample a random state from the state space
+                # Add small Gaussian noise to explore nearby states
+                noise = np.random.normal(0.0, 0.02, size=x_samp_vec.shape)
+                x_samp_vec = x_samp_vec + noise
             else:
-                rstateVec = self.state_sampler.sample()
+                # Otherwise sample a completely random state
+                x_samp = self.state_sampler.sample()
+                x_samp_vec = x_samp["stateVec"] if isinstance(
+                    x_samp, dict) else x_samp
 
-            # --------------------------------------------------
-            # Select the node to expand from
-            # Sometimes expand from the node whose target object
-            # is currently closest to the goal to improve efficiency.
-            # Otherwise use the nearest node to the sampled state.
-            # --------------------------------------------------
-            if self.tree.size() > 1 and np.random.rand() < 0.5:
-                goal = self.pdef.goal
-                best_node = None
-                best_dist = np.inf
+            # Find the nearest node in the tree to the sampled state
+            nearest = self.tree.nearest(x_samp_vec)
 
-                for node in self.tree.nodes:
-                    s = node.state["stateVec"]
-                    d = np.linalg.norm([s[7] - goal.x_g, s[8] - goal.y_g])
-
-                    if d < best_dist:
-                        best_dist = d
-                        best_node = node
-
-                nearest_node = best_node
-            else:
-                nearest_node = self.tree.nearest(rstateVec)
-
-            # --------------------------------------------------
-            # Sample control inputs from the nearest node
-            # The control sampler tries to find a control that
-            # moves the system toward the sampled state.
-            # --------------------------------------------------
-            ctrl, _ = self.control_sampler.sample_to(
-                nearest_node,
-                rstateVec,
-                1
+            # Try to propagate from the nearest node toward the sampled state
+            control, candidate_state = self.control_sampler.sample_to(
+                nearest, x_samp_vec, num_trials
             )
 
-            # If no valid control is found, skip this iteration
-            if ctrl is None:
+            # Skip if propagation fails
+            if control is None or candidate_state is None:
                 continue
 
-            # --------------------------------------------------
-            # Propagate the control in simulation to obtain the
-            # resulting state and check whether execution is valid.
-            # --------------------------------------------------
-            self.pdef.panda_sim.restore_state(nearest_node.state)
-            _, valid = self.pdef.panda_sim.execute(ctrl)
-            outcome = self.pdef.panda_sim.save_state()
-
-            # Skip if execution is invalid
-            if not valid:
+            # Skip if the new state is almost identical to the previous one
+            step = candidate_state["stateVec"] - nearest.state["stateVec"]
+            if np.linalg.norm(step) < 1e-6:
                 continue
 
-            # Check state validity (collision, workspace bounds, etc.)
-            if not self.pdef.is_state_valid(outcome):
-                continue
+            # Create a new node and add it to the tree
+            child = Node(candidate_state)
+            child.set_control(control)
+            child.set_parent(nearest)
+            self.tree.add(child)
 
-            # --------------------------------------------------
-            # Create a new node with the resulting state and
-            # add it to the RRT tree
-            # --------------------------------------------------
-            new_node = Node(outcome)
-            new_node.set_control(ctrl)
-            new_node.set_parent(nearest_node)
+            # Check if the new node satisfies the goal condition
+            if self.pdef.goal.is_satisfied(child.state):
 
-            self.tree.add(new_node)
+                # Reconstruct the path by tracing back through the parents
+                path_nodes = []
+                current = child
 
-            # --------------------------------------------------
-            # Check if the goal condition is satisfied
-            # If yes, backtrack through parents to form the plan
-            # --------------------------------------------------
-            if self.pdef.goal.is_satisfied(new_node.state):
-                solved = True
-                plan = []
+                while current is not None:
+                    path_nodes.append(current)
+                    current = current.parent
 
-                node = new_node
-                while node is not None:
-                    plan.append(node)
-                    node = node.get_parent()
+                # Reverse the path so it starts from the root
+                return True, path_nodes[::-1]
 
-                # Reverse the sequence to obtain start → goal order
-                plan.reverse()
-                break
+        # Return failure if no solution is found within the time limit
+        return False, None
+
         ##########################
 
         return solved, plan
