@@ -103,27 +103,31 @@ class ProblemDefinition(object):
         """
         ########## TODO ##########
 
-        # (a) state bounds
+        # (a) Check whether every dimension of the state stays within the predefined valid state bounds
         if not self.bounds_state.is_satisfied(state):
             return False
 
-        # (b) no collision between robot and the ground
+        # (b) Reject the state if the robot is in collision with the ground or the environment
         if self.panda_sim.is_collision(state):
             return False
 
-        # (c) end-effector inside workspace
+        # (c) Compute the end-effector position from the first 7 joint values using forward kinematics
         joint_values = state["stateVec"][0:7]
         pos, _ = self.panda_sim.jac_solver.forward_kinematics(joint_values)
 
-        # FK pose is with respect to robot base at [-0.4, -0.2, 0]
+        # The FK result - world frame
         x_ee = pos[0] - 0.4
         y_ee = pos[1] - 0.2
 
+        # Ensure the end-effector stays inside the allowed square workspace in the x direction
         if x_ee < -0.35 or x_ee > 0.35:
             return False
+
+        # Ensure the end-effector stays inside the allowed square workspace in the y direction
         if y_ee < -0.35 or y_ee > 0.35:
             return False
 
+        # The state is valid only if it passes all checks above
         return True
         ##########################
 
@@ -136,12 +140,21 @@ class ProblemDefinition(object):
         """
         ########## TODO ##########
 
+        # Compute J J^T for manipulability
         JJt = J @ J.T
+
+        # Determinant-based manipulability value
         det_val = np.linalg.det(JJt)
+
+        # small negative values caused by numerical error
         det_val = max(det_val, 0.0)
+
+        # Manipulability measure
         manipulability = np.sqrt(det_val)
 
+        # Reject near-singular configurations
         return manipulability > 0.01
+
         ##########################
 
     def propagate(self, nstate, control):
