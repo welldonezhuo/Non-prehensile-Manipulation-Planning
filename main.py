@@ -131,7 +131,56 @@ if __name__ == "__main__":
 
         # Task 4: Trajectory Optimization
         elif args.task == 4:
-            ########## TODO ##########
-            pass
+            # set relocation goal for task 4
+            goal = RelocateGoal()
+            pdef.set_goal(goal)
+
+            # create planner and run solve()
+            planner = rrt.KinodynamicRRT(pdef)
+            time_st = time.time()
+            solved, plan = planner.solve(120.0)
+            print("Running time of rrt.KinodynamicRRT.solve(): %f secs" %
+                  (time.time() - time_st))
+
+            if solved:
+                print("Initial plan found.")
+
+                # keep a copy of the original plan
+                initial_plan = opt.clone_plan(plan)
+                opt.print_plan_stats("Initial plan", initial_plan)
+
+                # draw initial plan in red
+                print("Drawing initial plan in red...")
+                panda_sim.restore_state(pdef.get_start_state())
+                for _ in range(2):
+                    panda_sim.step()
+                opt.execute_plan_with_color(panda_sim, initial_plan, [1, 0, 0])
+
+                # shortcut the plan to reduce cost
+                optimized_plan = opt.shortcut_plan(
+                    pdef,
+                    initial_plan,
+                    num_trials=30,
+                    dist_threshold=0.12
+                )
+
+                # print optimized plan info
+                opt.print_plan_stats("Optimized plan", optimized_plan)
+                print("plan is optimized_plan?",
+                      initial_plan is optimized_plan)
+                # print("Same plan?", opt.same_plan(
+                #     initial_plan, optimized_plan))
+
+                # draw optimized plan in blue
+                print("Drawing optimized plan in blue...")
+                panda_sim.restore_state(pdef.get_start_state())
+                for _ in range(2):
+                    panda_sim.step()
+                opt.execute_plan_with_color(
+                    panda_sim, optimized_plan, [0, 0, 1])
+
+                # keep window open
+                while True:
+                    pass
 
             ##########################

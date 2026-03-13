@@ -13,7 +13,8 @@ class JacSolver(object):
     def __init__(self):
         self.bullet_client = bc.BulletClient(connection_mode=p.DIRECT)
         self.bullet_client.setAdditionalSearchPath(pd.getDataPath())
-        self.panda = self.bullet_client.loadURDF("franka_panda/panda.urdf", useFixedBase=True)
+        self.panda = self.bullet_client.loadURDF(
+            "franka_panda/panda.urdf", useFixedBase=True)
 
     def forward_kinematics(self, joint_values):
         """
